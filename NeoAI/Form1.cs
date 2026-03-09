@@ -516,7 +516,7 @@ namespace NeoAI
         }
         private async Task<outBaseAnyResponse> ExecWS(RestRequest request)
         {
-            string _apiServer = "https://localhost:44315/";
+            string _apiServer = "https://localhost:44371/";
 
             RestClient client = new RestClient(_apiServer);
             request.AlwaysMultipartFormData = true;
