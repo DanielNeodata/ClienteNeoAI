@@ -3,529 +3,399 @@ using Newtonsoft.Json.Linq;
 using RestSharp;
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Data;
-using System.Data.Common;
 using System.Data.SqlClient;
-using System.Diagnostics.Eventing.Reader;
 using System.Drawing;
-using System.IO;
-using System.Linq;
-using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Runtime.Remoting.Messaging;
-using System.Text;
 using System.Threading.Tasks;
-using System.Web.UI.WebControls;
 using System.Windows.Forms;
-using System.Xml.Linq;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement;
-using static System.Windows.Forms.VisualStyles.VisualStyleElement.Tab;
-using ComboBox = System.Windows.Forms.ComboBox;
 using Label = System.Windows.Forms.Label;
 
 namespace NeoAI
 {
-    public partial class Form1 : Form
-    {
-        public string _message ="";
-        public int _lines = 0;
-        public int _columns = 0;
-        public string _connString = "";
-        public string _sqlString = "";
-        public string _fieldFilter = "";
-        public List<string> _controls = new List<string>();
-        public Form1()
-        {
-            InitializeComponent();
-        }
-        private void Form1_Load(object sender, EventArgs e)
-        {
-            InitializeForm();
-        }
+	public partial class Form1 : Form
+	{
+		public int _id_project_active = 1;
+		public string _MatrixDescription = "";
+		public int _id_question_active = 0;
+		public string _fieldFilter = "";
+		int? _forzarTop = 0;
+		public string _message = "";
+		public int _lines = 0;
+		public int _columns = 0;
+		public string _connString = "";
+		public string _sqlString = "";
+		public List<string> _controls = new List<string>();
+		DataTable dtQuestions = new DataTable();
+		public Form1()
+		{
+			InitializeComponent();
+		}
 
-        /*Eventos del formulario*/
-        private void InitializeForm()
-        {
-            cmbTop.DisplayMember = "Text";
-            cmbTop.ValueMember = "Value";
-            cmbTop.DataSource = new[] {
-                new { Text = "100 registros", Value = 100 },
-                new { Text = "1000 registros", Value = 1000 },
-                new { Text = "10000 registros", Value = 10000 },
-                new { Text = "Sin límite", Value =  0},
-            };
-            cmbTop.SelectedIndex = 0;
+		/*Eventos del formulario*/
+		private void Form1_Load(object sender, EventArgs e)
+		{
+			InitializeForm();
+			LoadProjectsAsync();
+		}
+		private void btnAgregar_Click(object sender, EventArgs e) {
+			Agregar();
+		}
+		private void btnEntrenar_Click(object sender, EventArgs e)
+		{
+			Entrenar();
+		}
+		private void btnResolver_Click(object sender, EventArgs e)
+		{
+			Resolver();
+		}
+		private void btnReset_Click(object sender, EventArgs e)
+		{
+			DialogResult _ret = MessageBox.Show("¿Confirma el borrado de los datos del proyecto?", "Resultado", MessageBoxButtons.YesNo);
+			if (_ret == DialogResult.Yes) { ResetProjectAsync(); }
+		}
+		private void btnBuscar_Click(object sender, EventArgs e)
+		{
+			GetPreviousData();
+		}
+		private void cmbTop_SelectedIndexChanged(object sender, EventArgs e)
+		{
+			_forzarTop = Convert.ToInt16(cmbTop.SelectedValue);
+		}
 
-            cmbRestriccion.DisplayMember = "Text";
-            cmbRestriccion.ValueMember = "Value";
-            cmbRestriccion.DataSource = new[] {
-                new { Text = "Ambos sexos, respuestas sin sesgo", Value = 0 },
-                new { Text = "Solo hombres, respuestas positivas", Value = 1 },
-                new { Text = "Solo hombres, respuestas negativas", Value = 2 },
-                new { Text = "Solo mujeres, respuestas positivas", Value = 3 },
-                new { Text = "Solo mujeres, respuestas negativas", Value = 4 }
-            };
-            cmbRestriccion.SelectedIndex = 0;
+		/*Comunicacion con la API*/
+		private void InitializeForm()
+		{
+			cmbTop.DisplayMember = "Text";
+			cmbTop.ValueMember = "Value";
+			cmbTop.DataSource = new[] {
+				new { Text = "Sin límite", Value =  0},
+				new { Text = "5 registros", Value = 5 },
+			};
+			cmbTop.SelectedIndex = 0;
+		}
+		private async Task Agregar()
+		{
+			bool _conMora = true;
+			bool _conJudicial = true;
+			Toggle(false);
+			for (int x = 1; x < 4; x++)
+			{
+				_conMora = (x == 1);
+				_conJudicial = (x == 3);
+				foreach (DataRow dRow in dtQuestions.Rows)
+				{
+					_id_question_active = Convert.ToInt32(dRow["Value"].ToString());
+					_fieldFilter = dRow["MatrixDescription"].ToString();
+					JObject _lastMatrixDescription = JObject.Parse(_MatrixDescription);
 
-            LoadProjectsAsync(0);
-        }
-        private void btnAgregar_Click(object sender, EventArgs e)
-        {
-            int _pos = 1;
-            int _neg = 0;
-            /*Calulo el modulo para que en las id question pares invierta los valores para el entrenamiento*/
-            int _mod = (Convert.ToInt32(cmbPreguntas.SelectedValue) % 2);
-            if (_mod == 0)
-            {
-                _pos = 0;
-                _neg = 1;
-            }
-            switch (Convert.ToInt32(cmbProyecto.SelectedValue))
-            {
-                case 1:
-                    int? _forzarRespuesta = null;
-                    int? _forzarSexo = null;
-                    switch (Convert.ToInt16(cmbRestriccion.SelectedValue)) {
-                        case 1:
-                            _forzarRespuesta = 1;
-                            _forzarSexo = 0;
-                            break;
-                        case 2:
-                            _forzarRespuesta = 0;
-                            _forzarSexo = 0;
-                            break;
-                        case 3:
-                            _forzarRespuesta = 1;
-                            _forzarSexo = 1;
-                            break;
-                        case 4:
-                            _forzarRespuesta = 0;
-                            _forzarSexo = 1;
-                            break;
-                    }
-                    LoadFromCredipaz(Convert.ToInt32(cmbTop.SelectedValue), _forzarSexo, _forzarRespuesta);
-                    break;
-                case 2:
-                    /*Masculinos*/
-                    AddValuesToControlledData4(1, 0.25, 1, 1, 1);
-                    AddValuesToControlledData4(1, 0.35, 1, 1, 1);
-                    AddValuesToControlledData4(1, 0.45, 1, 1, 1);
-                    AddValuesToControlledData4(1, 0.55, 1, 1, 1);
-                    AddValuesToControlledData4(1, 0.65, 1, 1, 1);
+					using (SqlConnection connection = new SqlConnection(_connString))
+					{
+						connection.Open();
+						SqlCommand cmd = new SqlCommand();
+						cmd.Connection = connection;
+						cmd.CommandType = CommandType.Text;
 
-                    AddValuesToControlledData4(1, 0.25, 0, 1, 0);
-                    AddValuesToControlledData4(1, 0.35, 0, 1, 0);
-                    AddValuesToControlledData4(1, 0.45, 0, 1, 0);
-                    AddValuesToControlledData4(1, 0.55, 0, 1, 0);
-                    AddValuesToControlledData4(1, 0.65, 0, 1, 0);
+						string _top = "";
+						for (int i = 1; i < 13; i++)
+						{
+							string _where = ("year(dFechaAlta)=2016 AND month(dFechaAlta)=" + i.ToString());
+							if (_conMora || _conJudicial) { _where += " AND mora=1"; } else { _where += " AND mora=0"; }
+							if (_conJudicial) { _where += " AND judicial=1"; } else { _where += " AND judicial=0"; }
+							if (_forzarTop.HasValue && _forzarTop != 0) { _top = (" TOP " + _forzarTop.ToString()); }
+							if (_where != "") { _where = (" WHERE " + _where); }
 
+							string _commandString = _sqlString.Replace("[TOP]", _top);
+							_commandString = _commandString.Replace("[WHERE]", _where);
+							_commandString = _commandString.Replace("[ORDER]", "");
+							cmd.CommandText = _commandString;
 
-                    break;
-                case 3:
-                    /*Masculinos*/
-                    AddValuesToControlledData3(0, 0.2, 0.01, _pos);
-                    AddValuesToControlledData3(0, 0.3, 0.01, _pos);
-                    AddValuesToControlledData3(0, 0.4, 0.01, _pos);
-                    AddValuesToControlledData3(0, 0.5, 0.01, _pos);
-                    AddValuesToControlledData3(0, 0.6, 0.01, _pos);
-                    AddValuesToControlledData3(0, 0.7, 0.01, _neg);
-                    AddValuesToControlledData3(0, 0.8, 0.01, _neg);
-                    AddValuesToControlledData3(0, 0.9, 0.01, _neg);
+							DataTable dtResponse = new DataTable();
+							dtResponse.Load(cmd.ExecuteReader());
+							foreach (DataRow drow in dtResponse.Rows)
+							{
+								double[,] arrItemTrainning = new double[_columns, _lines];
+								double[,] arrItemExpectedResult = new double[1, 1];
+								int ix = 0;
+								foreach (var _data in _lastMatrixDescription["data"])
+								{
+									arrItemTrainning[0, ix] = Convert.ToDouble(drow[_data["field"].ToString()]);
+									ix++;
+								}
+								int _respuesta = Convert.ToInt32(drow[_fieldFilter]);
+								double _respuestaX = 0.9;
+								if (_respuesta == 0) { _respuestaX = 0.1; }
+								arrItemExpectedResult[0, 0] = _respuestaX;
 
-                    /*Femeninos*/
-                    AddValuesToControlledData3(1, 0.2, 0.01, _neg);
-                    AddValuesToControlledData3(1, 0.3, 0.01, _neg);
-                    AddValuesToControlledData3(1, 0.4, 0.01, _neg);
-                    AddValuesToControlledData3(1, 0.5, 0.01, _neg);
-                    AddValuesToControlledData3(1, 0.6, 0.01, _neg);
-                    AddValuesToControlledData3(1, 0.7, 0.01, _pos);
-                    AddValuesToControlledData3(1, 0.8, 0.01, _pos);
-                    AddValuesToControlledData3(1, 0.9, 0.01, _pos);
+								/*Enviar a la API*/
+								byte[] _bItem = Tools.ToBytes(arrItemTrainning);
+								byte[] _bResult = Tools.ToBytes(arrItemExpectedResult);
+								RestRequest request1 = new RestRequest("neoneural.v1/AddItemforTranning", Method.Post);
+								request1.AddParameter("id_project", _id_project_active);
+								request1.AddParameter("base64RawData", Convert.ToBase64String(_bItem));
+								outBaseAnyResponse response = await ExecWS(request1);
+								RestRequest request2 = new RestRequest("neoneural.v1/AddItemResponseforTranning", Method.Post);
+								request2.AddParameter("id_project", _id_project_active);
+								request2.AddParameter("id_item", response.Numeric);
+								request2.AddParameter("id_question", _id_question_active);
+								request2.AddParameter("base64RawData", Convert.ToBase64String(_bResult));
+								response = await ExecWS(request2);
+							}
+						}
+					}
+				}
+			}
+			MessageBox.Show("El proceso ha finalizado correctamente", "Resultado", MessageBoxButtons.OK);
+			Toggle(true);
+		}
+		private async Task Entrenar()
+		{
+			Toggle(false);
+			foreach (DataRow dRow in dtQuestions.Rows)
+			{
+				_id_question_active = Convert.ToInt32(dRow["Value"].ToString());
+				RestRequest request = new RestRequest("neoneural.v1/Trainning", Method.Post);
+				request.AddParameter("id_project", _id_project_active);
+				request.AddParameter("id_question", _id_question_active);
+				outBaseAnyResponse response = await ExecWS(request);
+			}
+			MessageBox.Show("El proceso ha finalizado correctamente", "Resultado", MessageBoxButtons.OK);
+			Toggle(true);
+		}
+		private async Task Resolver()
+		{
+			Toggle(false);
+			JObject _matrix = JObject.Parse(_MatrixDescription);
+			int i = 0;
+			double[,] arrItemProblem = new double[_columns, _lines];
+			foreach (var _data in _matrix["data"])
+			{
+				Control[] _c = this.Controls.Find(_data["field"].ToString(), true);
+				arrItemProblem[0, i] = Convert.ToDouble(_c[0].Text);
+				i++;
+			}
+			byte[] _bItem = Tools.ToBytes(arrItemProblem);
+			foreach (DataRow dRow in dtQuestions.Rows)
+			{
+				_id_question_active = Convert.ToInt32(dRow["Value"].ToString());
+				_fieldFilter = dRow["MatrixDescription"].ToString();
+				SynapsesMatrixAsync();
+				Control[] _lbl = this.Controls.Find(_fieldFilter, true);
+				RestRequest request = new RestRequest("neoneural.v1/Resolve", Method.Post);
+				request.AddParameter("id_project", _id_project_active);
+				request.AddParameter("id_question", _id_question_active);
+				request.AddParameter("base64RawData", Convert.ToBase64String(_bItem));
+				outBaseAnyResponse response = await ExecWS(request);
 
-                    break;
-            }
-            _message = "";
+				/*Tratamiento de la respuesta*/
+				if (response.Status == "OK")
+				{
+					_lbl[0].Text = "";
+					foreach (var item in response.Records)
+					{
+						decimal _d = Convert.ToDecimal(item["Double"]);
+						_lbl[0].ForeColor = Color.DarkGreen;
+						if (_d >= (decimal)0.5) { _lbl[0].ForeColor = Color.Blue; }
+						if (_d >= (decimal)0.75) { _lbl[0].ForeColor = Color.Red; }
+						_lbl[0].Text = _d.ToString();
+					}
+				}
+				else
+				{
+					MessageBox.Show(response.Error, "Error", MessageBoxButtons.OK);
+					_lbl[0].ForeColor = Color.Red;
+					_lbl[0].Text = "Sin respuesta posible";
+				}
+			}
+			Toggle(true);
+		}
+		private async Task AddItemforTranningAsync(double[,] arrItemTrainning, double[,] arrItemExpectedResult)
+		{
+			byte[] _bItem = Tools.ToBytes(arrItemTrainning);
+			byte[] _bResult = Tools.ToBytes(arrItemExpectedResult);
+			RestRequest request = new RestRequest("neoneural.v1/AddItemforTranning", Method.Post);
+			request.AddParameter("id_project", _id_project_active);
+			request.AddParameter("base64RawData", Convert.ToBase64String(_bItem));
+			outBaseAnyResponse response = await ExecWS(request);
+			request = new RestRequest("neoneural.v1/AddItemResponseforTranning", Method.Post);
+			request.AddParameter("id_project", _id_project_active);
+			request.AddParameter("id_item", response.Numeric);
+			request.AddParameter("id_question", _id_question_active);
+			request.AddParameter("base64RawData", Convert.ToBase64String(_bResult));
+			response = await ExecWS(request);
+		}
 
-            if (_message != "")
-            {
-                MessageBox.Show(_message, "Problema", MessageBoxButtons.OK);
-            }
-            else
-            {
-                MessageBox.Show("El proceso ha finalizado correctamente", "Resultado", MessageBoxButtons.OK);
-            }
-        }
-        private void btnEntrenar_Click(object sender, EventArgs e)
-        {
-            TrainningAsync();
-        }
-        private void btnResolver_Click(object sender, EventArgs e)
-        {
-            /* Datos para testear el problema */
-            int i = 0;
-            double[,] problemData = new double[_columns, _lines];
-            foreach (string li in this._controls) {
-                if (i < _lines){problemData[0, i] = Convert.ToDouble(getDynValue(li));}
-                i += 1; 
-            }
-            ResolveAsync(problemData);
-        }
-        private void btnReset_Click(object sender, EventArgs e)
-        {
-            DialogResult _ret = MessageBox.Show("¿Confirma el borrado de los datos del proyecto?", "Resultado", MessageBoxButtons.YesNo);
-            if (_ret == DialogResult.Yes) { ResetProjectAsync(); }
-        }
-        private void cmbProyecto_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            LoadProjectsAsync(Convert.ToInt32(cmbProyecto.SelectedValue));
-            QuestionsAsync(0);
-        }
-        private void cmbPreguntas_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            QuestionsAsync(Convert.ToInt32(cmbPreguntas.SelectedValue));
-        }
+		private async Task SynapsesMatrixAsync()
+		{
+			RestRequest request = new RestRequest("neoneural.v1/SynapsesMatrix", Method.Post);
+			request.AddParameter("id_project", _id_project_active);
+			request.AddParameter("id_question", _id_question_active);
+			outBaseAnyResponse response = await ExecWS(request);
+		}
+		private async Task LoadProjectsAsync()
+		{
+			RestRequest request = new RestRequest("neoneural.v1/Projects", Method.Post);
+			request.AddParameter("id_project", _id_project_active);
+			outBaseAnyResponse response = await ExecWS(request);
 
-        /*Data Loaders*/
-        private void LoadFromCredipaz(int? _wTop, double? _wSexo, int? _forceResponseValue)
-        {
-            using (SqlConnection connection = new SqlConnection(_connString))
-            {
-                string _top = "";
-                string _where = "";
+			/*Tratamiento de la respuesta*/
+			if (response.Records != null)
+			{
+				/*Setea datos de la matriz del proyecto activo*/
+				_connString = response.Records[0]["connString"].ToString();
+				_sqlString = response.Records[0]["sqlString"].ToString();
+				_lines = Convert.ToInt32(response.Records[0]["LinesMatrix"]);
+				_columns = Convert.ToInt32(response.Records[0]["ColumnsMatrix"]);
+				lblProyecto.Text = "Matríz definida [" + response.Records[0]["ColumnsMatrix"].ToString() + "," + response.Records[0]["LinesMatrix"].ToString() + "] ";
+				lblProyecto.Text += " con " + response.Records[0]["EpochsMatrix"].ToString() + " ciclos por dato para entrenamiento";
+				_MatrixDescription = response.Records[0]["MatrixDescription"].ToString();
+				CreateControls();
+			}
+			QuestionsAsync();
+		}
+		private async Task ResetProjectAsync()
+		{
+			Toggle(false);
+			RestRequest request = new RestRequest("neoneural.v1/ResetProject", Method.Post);
+			request.AddParameter("id_project", _id_project_active);
+			outBaseAnyResponse response = await ExecWS(request);
+			MessageBox.Show("El proceso ha finalizado correctamente", "Resultado", MessageBoxButtons.OK);
+			Toggle(true);
+		}
+		private async Task QuestionsAsync()
+		{
+			RestRequest request = new RestRequest("neoneural.v1/Questions", Method.Post);
+			request.AddParameter("id_project", _id_project_active);
+			outBaseAnyResponse response = await ExecWS(request);
 
-                if (_wTop.HasValue && _wTop!=0) { _top = (" TOP " + _wTop.ToString()); }
-                if (_wSexo.HasValue) { _where += "sexo=" + _wSexo.ToString(); }
-                if (_where != "") { _where += " AND "; }
-                if (_forceResponseValue.HasValue) { _where += _fieldFilter + "=" + _forceResponseValue.ToString(); }
-                if (_where != "") { _where = (" WHERE " + _where); }
+			/*Tratamiento de la respuesta*/
+			if (response.Records != null)
+			{
+				dtQuestions = new DataTable();
+				dtQuestions.Columns.Add("Value", typeof(int));
+				dtQuestions.Columns.Add("Text");
+				dtQuestions.Columns.Add("MatrixDescription");
 
-                string _commandString = _sqlString.Replace("[TOP]", _top);
-                _commandString = _commandString.Replace("[WHERE]", _where);
-                _commandString = _commandString.Replace("[ORDER]", "");
+				int _l = 9;
+				int _t = 365;
+				int i = 0;
+				foreach (var item in response.Records)
+				{
+					string _fieldName = item["MatrixDescription"].ToString();
+					dtQuestions.Rows.Add(Convert.ToInt32(item["id"]), item["description"].ToString(), _fieldName);
+					
+					Label _label = new Label();
+					_label.Name = "rsp" + item["id"].ToString();
+					_label.Text = item["description"].ToString();
+					_label.AutoSize = true;
+					this.Controls.Add(_label);
+					_label.Parent = this;
+					_label.Left = _l;
+					_label.Top = _t + (40*i);
 
-                connection.Open();
-                SqlCommand cmd = new SqlCommand();
-                cmd.Connection = connection;
-                cmd.CommandType = CommandType.Text;
-                cmd.CommandText = _commandString;
+					Label _Message = new Label();
+					_Message.Name = _fieldName;
+					_Message.Text = "...";
+					this.Controls.Add(_Message);
+					_Message.Parent = this;
+					_Message.Left = _l;
+					_Message.Top = _t + (40 * i) + 15;
+					_Message.Width = btnResolver.Width;
+					i++;
+				}
+			}
+		}
 
-                DataTable dtResponse = new DataTable();
-                dtResponse.Load(cmd.ExecuteReader());
+		private async Task<outBaseAnyResponse> ExecWS(RestRequest request)
+		{
+			string _apiServer = "https://localhost:44371/";
 
-                foreach (DataRow drow in dtResponse.Rows)
-                {
-                    double _sexo = Convert.ToDouble(drow["sexo"]);
-                    double _edad = Convert.ToDouble(drow["edad"]);
-                    double _ocupacion = Convert.ToDouble(drow["ocupacion"]);
-                    double _ingresos = Convert.ToDouble(drow["ingresos"]);
-                    double _calificacioncl = Convert.ToDouble(drow["calificacion"]);
-                    int _respuesta = Convert.ToInt32(drow[_fieldFilter]);
-                    AddValuesToControlledData5(_sexo, _edad, _ocupacion, _ingresos, _calificacioncl, _respuesta);
-                }
-            }
-        }
+			RestClient client = new RestClient(_apiServer);
+			request.AlwaysMultipartFormData = true;
+			request.AddParameter("id_application", "10");
+			request.AddParameter("id_user", "2");
+			request.AddParameter("token", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1bmlxdWVfbmFtZSI6Im5lb2RhdGEiLCJub25jZSI6IjEwIiwibmFtZWlkIjoiMiIsImlzcyI6Im5lb2RhdGFFY29zeXN0ZW0uZ3J1cG9uZW9kYXRhLmNvbSIsImF1ZCI6Im5lb2RhdGFFY29zeXN0ZW0uZ3J1cG9uZW9kYXRhLmNvbSJ9.L1Gt42yH-Ux_QpAqb9FLrZwNMwW6Jwe4tEZsJADbRHk");
 
-        /*Auxiliares*/
-        private void CreateControls(string _MatrixDescription)
-        {
-            try
-            {
-                int i = 0;
-                List<string> _pList = new List<string>();
-                this.panelProblema.Controls.Clear();
-                lblMatrixDescription.Text = "";
-                JObject _lastMatrixDescription = JObject.Parse(_MatrixDescription);
-                foreach (var _data in _lastMatrixDescription["data"])
-                {
-                    string _title = _data["title"].ToString();
-                    this._controls.Add(_title);
+			RestResponse response = await client.ExecuteAsync(request);
+			return JsonConvert.DeserializeObject<outBaseAnyResponse>(@response.Content);
+		}
 
-                    if (lblMatrixDescription.Text != "") { lblMatrixDescription.Text += ", "; }
-                    lblMatrixDescription.Text += _title;
+		private void GetPreviousData() {
+			using (SqlConnection connection = new SqlConnection(_connString))
+			{
+				string _top = "";
+				string _where = ("WHERE idsolicitud="+idsolicitud.Text);
 
-                    Label _label = new Label();
-                    _label.Name = "lbl" + _title;
-                    _label.Text = _title;
-                    _label.AutoSize = true;
-                    this.Controls.Add(_label);
-                    _label.Parent = this.panelProblema;
-                    _label.Left = 0;
-                    _label.Top = (41 * i);
+				string _commandString = _sqlString.Replace("[TOP]", _top);
+				_commandString = _commandString.Replace("[WHERE]", _where);
+				_commandString = _commandString.Replace("[ORDER]", "");
 
-                    ComboBox _comboBox = new ComboBox();
-                    _comboBox.Name = _title;
-                    this.Controls.Add(_comboBox);
-                    _comboBox.Parent = this.panelProblema;
-                    _comboBox.Left = 0;
-                    _comboBox.Top = ((41 * i) + 15);
-                    _comboBox.Width = panelProblema.Width;
+				connection.Open();
+				SqlCommand cmd = new SqlCommand();
+				cmd.Connection = connection;
+				cmd.CommandType = CommandType.Text;
+				cmd.CommandText = _commandString;
 
-                    DataTable dt = new DataTable();
-                    dt.Columns.Add("Text");
-                    dt.Columns.Add("Value");
-                    foreach (var _values in _data["values"])
-                    {
-                        DataRow dr = dt.NewRow();
-                        dr["Text"] = _values["display"].ToString();
-                        dr["Value"] = _values["value"].ToString();
-                        dt.Rows.InsertAt(dr, dt.Rows.Count);
-                    }
-                    _comboBox.DisplayMember = "Text";
-                    _comboBox.ValueMember = "Value";
-                    _comboBox.DataSource = dt;
-                    _comboBox.SelectedIndex = 0;
-                    i += 1;
-                }
+				DataTable dtPrevious = new DataTable();
+				dtPrevious.Load(cmd.ExecuteReader());
+				
+				JObject _lastMatrixDescription = JObject.Parse(_MatrixDescription);
+				foreach (DataRow drow in dtPrevious.Rows)
+				{
+					foreach (var _data in _lastMatrixDescription["data"])
+					{
+						Control[] _c = this.Controls.Find(_data["field"].ToString(), true);
+						_c[0].Text = drow[_data["field"].ToString()].ToString();
+					}
+					pMora.Text = drow["mora"].ToString();
+					pJuridico.Text = drow["judicial"].ToString();
+				}
+			}
+		}
+		private void CreateControls()
+		{
+			try
+			{
+				int i = 0;
+				List<string> _pList = new List<string>();
+				this.panelProblema.Controls.Clear();
+				lblMatrixDescription.Text = "";
+				JObject _lastMatrixDescription = JObject.Parse(_MatrixDescription);
+				foreach (var _data in _lastMatrixDescription["data"])
+				{
+					string _field = _data["field"].ToString();
+					string _title = _data["title"].ToString();
+					if (_title == "") { _title = _field; }
+					this._controls.Add(_title);
 
-            }
-            catch (Exception ex) { }
-        }
-        private Double? getDynValue(string _name) {
-            foreach (Control c in panelProblema.Controls)
-            {
-                if (c is ComboBox)
-                {
-                    ComboBox _combo = (ComboBox)c;
-                    if (_combo.Name.Equals(_name)) {
-                        return Convert.ToDouble(_combo.SelectedValue); 
-                    }
-                }
-            }
-            return null;
-        }
-        private void AddValuesToControlledData5(double _sexo, double _edad, double _ocupacion, double _ingresos, double _calificacion, int _respuesta)
-        {
-            double[,] arrItemTrainning = new double[_columns, _lines];
-            double[,] arrItemExpectedResult = new double[1, 1];
-            arrItemTrainning[0, 0] = _sexo; 
-            arrItemTrainning[0, 1] = _edad; 
-            arrItemTrainning[0, 2] = _ocupacion; 
-            arrItemTrainning[0, 3] = _ingresos; 
-            arrItemTrainning[0, 4] = _calificacion;
-            double _respuestaX = 0.9;
-            if (_respuesta == 0) { _respuestaX = 0.1; }
+					if (lblMatrixDescription.Text != "") { lblMatrixDescription.Text += ", "; }
+					lblMatrixDescription.Text += _title;
 
-            arrItemExpectedResult[0, 0] = _respuestaX;
-            /*Enviar a la API*/
-            AddItemforTranningAsync(arrItemTrainning, arrItemExpectedResult);
-        }
-        private void AddValuesToControlledData4(double _sexo, double _edad, double _ocupacion, double _ingresos, int _respuesta)
-        {
-            double[,] arrItemTrainning = new double[_columns, _lines];
-            double[,] arrItemExpectedResult = new double[1, 1];
-            arrItemTrainning[0, 0] = _sexo; 
-            arrItemTrainning[0, 1] = _edad; 
-            arrItemTrainning[0, 2] = _ocupacion; 
-            arrItemTrainning[0, 3] = _ingresos; 
-            arrItemExpectedResult[0, 0] = _respuesta;
-            /*Enviar a la API*/
-            AddItemforTranningAsync(arrItemTrainning, arrItemExpectedResult);
-        }
-        private void AddValuesToControlledData3(double _sexo, double _edad, double _ocupacion, int _respuesta)
-        {
-            double[,] arrItemTrainning = new double[_columns, _lines];
-            double[,] arrItemExpectedResult = new double[1, 1];
-            arrItemTrainning[0, 0] = _sexo; 
-            arrItemTrainning[0, 1] = _edad; 
-            arrItemTrainning[0, 2] = _ocupacion; 
-            arrItemExpectedResult[0, 0] = _respuesta;
-            /*Enviar a la API*/
-            AddItemforTranningAsync(arrItemTrainning, arrItemExpectedResult);
-        }
-        private void DrawSynapsesMatrix(List<Dictionary<string, object>> _records) {
-            textBox2.Clear();
-            foreach (var item in _records)
-            {
-                textBox2.AppendText(item["Double"].ToString());
-                textBox2.AppendText(Environment.NewLine);
-            }
-        }
+					Label _label = new Label();
+					_label.Name = "lbl" + _title;
+					_label.Text = _title;
+					_label.AutoSize = true;
+					this.Controls.Add(_label);
+					_label.Parent = this.panelProblema;
+					_label.Left = 0;
+					_label.Top = (35 * i);
 
-        /*Comunicacion con la API*/
-        private async Task ResolveAsync(double[,] arrItemProblem)
-        {
-            byte[] _bItem = Tools.ToBytes(arrItemProblem);
-            RestRequest request = new RestRequest("neoneural.v1/Resolve", Method.Post);
-            request.AddParameter("id_project", Convert.ToInt32(cmbProyecto.SelectedValue));
-            request.AddParameter("id_question", Convert.ToInt32(cmbPreguntas.SelectedValue));
-            request.AddParameter("base64RawData", Convert.ToBase64String(_bItem));
-            outBaseAnyResponse response = await ExecWS(request);
+					TextBox _TextBox = new TextBox();
+					_TextBox.Name = _title;
+					_TextBox.Text = "0";
+					this.Controls.Add(_TextBox);
+					_TextBox.Parent = this.panelProblema;
+					_TextBox.Left = 0;
+					_TextBox.Top = ((35 * i) + 15);
+					_TextBox.Width = panelProblema.Width/3;
 
-            /*Tratamiento de la respuesta*/
-            if (response.Status == "OK")
-            {
-                lblResponse.Text = "";
-                foreach (var item in response.Records)
-                {
-                    decimal _d = Convert.ToDecimal(item["Double"]);
-                    lblResponse.ForeColor = Color.DarkGreen;
-                    if (_d >= (decimal)0.5) { lblResponse.ForeColor = Color.Blue; }
-                    if (_d >= (decimal)0.75) { lblResponse.ForeColor = Color.Red; }
-                    lblResponse.Text = _d.ToString();
-                }
-            }
-            else {
-                MessageBox.Show(response.Error, "Error", MessageBoxButtons.OK);
-                lblResponse.ForeColor = Color.Red;
-                lblResponse.Text = "Sin respuesta posible";
-            }
-        }
-        private async Task AddItemforTranningAsync(double[,] arrItemTrainning, double[,] arrItemExpectedResult)
-        {
-            byte[] _bItem = Tools.ToBytes(arrItemTrainning);
-            byte[] _bResult = Tools.ToBytes(arrItemExpectedResult);
+					i += 1;
+				}
 
-            RestRequest request = new RestRequest("neoneural.v1/AddItemforTranning", Method.Post);
-            request.AddParameter("id_project", Convert.ToInt32(cmbProyecto.SelectedValue));
-            request.AddParameter("base64RawData", Convert.ToBase64String(_bItem));
-            outBaseAnyResponse response = await ExecWS(request);
-
-            /*Tratamiento de la respuesta*/
-            if (response.Numeric != 0)
-            {
-                request = new RestRequest("neoneural.v1/AddItemResponseforTranning", Method.Post);
-                request.AddParameter("id_project", Convert.ToInt32(cmbProyecto.SelectedValue));
-                request.AddParameter("id_item", response.Numeric);
-                request.AddParameter("id_question", Convert.ToInt32(cmbPreguntas.SelectedValue));
-                request.AddParameter("base64RawData", Convert.ToBase64String(_bResult));
-                response = await ExecWS(request);
-                if (response.Numeric == 0)
-                {
-                    _message = "No se han insertado todos los valores de respuesta";
-                }
-            }
-            else
-            {
-                _message = "No se han insertado todos los valores a entrenar";
-            }
-        }
-        private async Task TrainningAsync()
-        {
-            RestRequest request = new RestRequest("neoneural.v1/Trainning", Method.Post);
-            request.AddParameter("id_project", Convert.ToInt32(cmbProyecto.SelectedValue));
-            request.AddParameter("id_question", Convert.ToInt32(cmbPreguntas.SelectedValue));
-            outBaseAnyResponse response = await ExecWS(request);
-
-            /*Tratamiento de la respuesta*/
-            if (response.Status == "OK")
-            {
-                DrawSynapsesMatrix(response.Records);
-            }
-            else {
-                MessageBox.Show(response.Error, "Error", MessageBoxButtons.OK);
-            }
-        }
-        private async Task SynapsesMatrixAsync()
-        {
-            RestRequest request = new RestRequest("neoneural.v1/SynapsesMatrix", Method.Post);
-            request.AddParameter("id_project", Convert.ToInt32(cmbProyecto.SelectedValue));
-            request.AddParameter("id_question", Convert.ToInt32(cmbPreguntas.SelectedValue));
-            outBaseAnyResponse response = await ExecWS(request);
-
-            /*Tratamiento de la respuesta*/
-            DrawSynapsesMatrix(response.Records);
-        }
-        private async Task LoadProjectsAsync(int _id_project)
-        {
-            RestRequest request = new RestRequest("neoneural.v1/Projects", Method.Post);
-            request.AddParameter("id_project", _id_project);
-            outBaseAnyResponse response = await ExecWS(request);
-
-            /*Tratamiento de la respuesta*/
-            cmbProyecto.DisplayMember = "Text";
-            cmbProyecto.ValueMember = "Value";
-            if (response.Records != null)
-            {
-                if (_id_project == 0)
-                {
-                    DataTable dt = new DataTable();
-                    dt.Columns.Add("Value", typeof(int));
-                    dt.Columns.Add("Text");
-                    foreach (var item in response.Records)
-                    {
-                        dt.Rows.Add(Convert.ToInt32(item["id"]), item["description"].ToString());
-                    }
-                    cmbProyecto.DataSource = dt;
-                    cmbProyecto.SelectedIndex = 0;
-                }
-                else {
-                    /*Setea datos de la matriz del proyecto activo*/
-                    _connString = response.Records[0]["connString"].ToString();
-                    _sqlString = response.Records[0]["sqlString"].ToString();
-                    _lines = Convert.ToInt32(response.Records[0]["LinesMatrix"]);
-                    _columns = Convert.ToInt32(response.Records[0]["ColumnsMatrix"]);
-                    lblProyecto.Text = "Matríz definida [" + response.Records[0]["ColumnsMatrix"].ToString() + "," + response.Records[0]["LinesMatrix"].ToString() + "] ";
-                    lblProyecto.Text += " con " + response.Records[0]["EpochsMatrix"].ToString() + " ciclos por dato para entrenamiento";
-
-                    CreateControls(response.Records[0]["MatrixDescription"].ToString());
-                }
-            }
-        }
-
-        private async Task ResetProjectAsync()
-        {
-            RestRequest request = new RestRequest("neoneural.v1/ResetProject", Method.Post);
-            request.AddParameter("id_project", Convert.ToInt32(cmbProyecto.SelectedValue));
-            outBaseAnyResponse response = await ExecWS(request);
-
-            /*Tratamiento de la respuesta*/
-            if (response.Status == "OK")
-            {
-                cmbProyecto_SelectedIndexChanged(null, null);
-                lblResponse.ForeColor = Color.Black;
-                lblResponse.Text = "...";
-                MessageBox.Show("El proceso ha finalizado correctamente", "Resultado", MessageBoxButtons.OK);
-            }
-            else {
-                MessageBox.Show(response.Message, "Error", MessageBoxButtons.OK);
-            }
-        }
-        private async Task QuestionsAsync(int _id_question)
-        {
-            RestRequest request = new RestRequest("neoneural.v1/Questions", Method.Post);
-            request.AddParameter("id_project", Convert.ToInt32(cmbProyecto.SelectedValue));
-            request.AddParameter("id_question", _id_question);
-            outBaseAnyResponse response = await ExecWS(request);
-
-            /*Tratamiento de la respuesta*/
-            if (response.Records != null)
-            {
-                if (_id_question == 0)
-                {
-                    DataTable dt = new DataTable();
-                    dt.Columns.Add("Value", typeof(int));
-                    dt.Columns.Add("Text");
-                    foreach (var item in response.Records)
-                    {
-                        dt.Rows.Add(Convert.ToInt32(item["id"]), item["description"].ToString());
-                    }
-                    cmbPreguntas.DisplayMember = "Text";
-                    cmbPreguntas.ValueMember = "Value";
-                    cmbPreguntas.DataSource = dt;
-                    cmbPreguntas.SelectedIndex = 0;
-                }
-                else
-                {
-                    JObject _lastMatrixDescription = JObject.Parse(response.Records[0]["MatrixDescription"].ToString());
-                    foreach (var _data in _lastMatrixDescription["data"]) { _fieldFilter = _data["response"].ToString(); }
-                    SynapsesMatrixAsync();
-                }
-            }
-        }
-        private async Task<outBaseAnyResponse> ExecWS(RestRequest request)
-        {
-            string _apiServer = "https://localhost:44371/";
-
-            RestClient client = new RestClient(_apiServer);
-            request.AlwaysMultipartFormData = true;
-            request.AddParameter("id_application", "10");
-            request.AddParameter("id_user", "2");
-            request.AddParameter("token", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1bmlxdWVfbmFtZSI6Im5lb2RhdGEiLCJub25jZSI6IjEwIiwibmFtZWlkIjoiMiIsImlzcyI6Im5lb2RhdGFFY29zeXN0ZW0uZ3J1cG9uZW9kYXRhLmNvbSIsImF1ZCI6Im5lb2RhdGFFY29zeXN0ZW0uZ3J1cG9uZW9kYXRhLmNvbSJ9.L1Gt42yH-Ux_QpAqb9FLrZwNMwW6Jwe4tEZsJADbRHk");
-
-            RestResponse response = await client.ExecuteAsync(request);
-            return JsonConvert.DeserializeObject<outBaseAnyResponse>(@response.Content);
-        }
-    }
+			}
+			catch (Exception ex) { }
+		}
+		private void Toggle(bool _val) {
+			foreach (Control c in this.Controls) { c.Enabled = _val; }
+		}
+	}
 }
